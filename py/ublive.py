@@ -41,7 +41,7 @@ class Spider(Spider):
         self.categories = []
         self.session = requests.Session()
 
-        # 台标默认图（匹配不到时使用）
+        # 默认台标（匹配不到时用）
         self.default_logo = "https://img.icons8.com/color/48/tv.png"
 
     def getName(self):
@@ -50,6 +50,7 @@ class Spider(Spider):
     def init(self, extend):
         pass
 
+    # ---------- 加密工具 ----------
     def get_random_string(self, length):
         chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
         import random
@@ -134,6 +135,7 @@ class Spider(Spider):
         except Exception:
             return ""
 
+    # ---------- API 请求 ----------
     def fetch_dynamic_token(self):
         body_payload = {
             "icode": "", "icode_name": self.username,
@@ -256,20 +258,49 @@ class Spider(Spider):
     # ---------- 台标匹配 ----------
     def clean_channel_name(self, name):
         """清洗频道名，去掉高清/HD 等后缀"""
-        name = name.strip()
+        name = str(name).strip()
         name = re.sub(
-            r'(高清|超清|标清|蓝光|HD|FHD|UHD|4K|SD|1080P|8M)$',
+            r'(高清|超清|标清|蓝光|HD|FHD|UHD|4K|SD|1080P|8M|超高清)$',
             '', name, flags=re.IGNORECASE
         )
-        name = name.replace('-', '').replace(' ', '').strip()
+        name = name.replace(' ', '').strip()
         return name
 
     def match_channel_logo(self, ch_name):
-        """按频道名匹配 fanmingming 台标库"""
+        """使用 112114 接口匹配台标，带别名映射"""
         clean = self.clean_channel_name(ch_name)
         if not clean:
             return self.default_logo
-        return f"https://cdn.jsdelivr.net/gh/fanmingming/live@main/tv/{quote(clean)}.png"
+
+        # ★ 别名映射表：左边 JSON 里的名字 → 右边台标库里的真实名字
+        logo_alias = {
+            # CCTV 系列（112114 用不带横杠的形式）
+            "CCTV1": "CCTV1", "CCTV2": "CCTV2", "CCTV3": "CCTV3",
+            "CCTV4": "CCTV4", "CCTV5": "CCTV5", "CCTV5+": "CCTV5+",
+            "CCTV6": "CCTV6", "CCTV7": "CCTV7", "CCTV8": "CCTV8",
+            "CCTV9": "CCTV9", "CCTV10": "CCTV10", "CCTV11": "CCTV11",
+            "CCTV12": "CCTV12", "CCTV13": "CCTV13", "CCTV14": "CCTV14",
+            "CCTV15": "CCTV15", "CCTV16": "CCTV16", "CCTV17": "CCTV17",
+            # 凤凰系列
+            "凤凰中文": "凤凰卫视中文台",
+            "凤凰资讯": "凤凰卫视资讯台",
+            "凤凰香港": "凤凰卫视香港台",
+            "凤凰电影": "凤凰卫视电影台",
+            # 港澳台
+            "翡翠台": "翡翠台",
+            "明珠台": "明珠台",
+            "无线新闻": "无线新闻台",
+            "无线财经": "无线财经资讯台",
+            "TVB": "无线新闻台",
+            # 其他别名
+            "湖南金鹰": "金鹰卡通",
+            "东南卫视": "东南卫视",
+        }
+
+        clean = logo_alias.get(clean, clean)
+
+        # ★ 112114 台标接口
+        return f"https://epg.112114.eu.org/logo/{quote(clean)}.png"
 
     # ---------- 資料載入 ----------
     def load_channels(self):
@@ -279,6 +310,7 @@ class Spider(Spider):
         processed_channels = []
         categories_order = []
 
+        # ★ 在线地址放第一位，本地作为兜底
         possible_dirs = [
             "https://raw.githubusercontent.com/kan1314go/9988/refs/heads/main/py/",
             self.base_dir,
@@ -313,7 +345,7 @@ class Spider(Spider):
                         if not ch_id or not ch_title:
                             continue
 
-                        # ★ 优先用 JSON 自带 logo，没有就匹配台标库
+                        # ★ JSON 自带 logo 优先，没有则自动匹配
                         ch_logo = str(ch.get('logo', '')).strip()
                         if not ch_logo:
                             ch_logo = self.match_channel_logo(ch_title)
