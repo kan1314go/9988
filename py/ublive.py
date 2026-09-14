@@ -7,8 +7,10 @@ import os
 import time
 import base64
 import hashlib
+import re
 import requests
 import urllib3
+from urllib.parse import quote
 from Crypto.Cipher import AES
 
 urllib3.disable_warnings()
@@ -38,6 +40,9 @@ class Spider(Spider):
         self.channels = []
         self.categories = []
         self.session = requests.Session()
+
+        # 台标默认图（匹配不到时使用）
+        self.default_logo = "https://img.icons8.com/color/48/tv.png"
 
     def getName(self):
         return self.name
@@ -222,6 +227,7 @@ class Spider(Spider):
             pass
         return None
 
+    # ---------- 加载工具 ----------
     def load_json_from_file(self, path):
         try:
             if os.path.exists(path):
@@ -247,6 +253,25 @@ class Spider(Spider):
             print("在线加载异常:", url, e)
         return None
 
+    # ---------- 台标匹配 ----------
+    def clean_channel_name(self, name):
+        """清洗频道名，去掉高清/HD 等后缀"""
+        name = name.strip()
+        name = re.sub(
+            r'(高清|超清|标清|蓝光|HD|FHD|UHD|4K|SD|1080P|8M)$',
+            '', name, flags=re.IGNORECASE
+        )
+        name = name.replace('-', '').replace(' ', '').strip()
+        return name
+
+    def match_channel_logo(self, ch_name):
+        """按频道名匹配 fanmingming 台标库"""
+        clean = self.clean_channel_name(ch_name)
+        if not clean:
+            return self.default_logo
+        return f"https://cdn.jsdelivr.net/gh/fanmingming/live@main/tv/{quote(clean)}.png"
+
+    # ---------- 資料載入 ----------
     def load_channels(self):
         if self.channels:
             return self.channels
@@ -274,6 +299,8 @@ class Spider(Spider):
                 if not data:
                     continue
 
+                print("★ 成功加载:", d, fname)
+
                 cat_list = data.get('return_live', [])
                 for cat in cat_list:
                     group_name = str(cat.get('name', '未分類')).strip()
@@ -286,11 +313,16 @@ class Spider(Spider):
                         if not ch_id or not ch_title:
                             continue
 
+                        # ★ 优先用 JSON 自带 logo，没有就匹配台标库
+                        ch_logo = str(ch.get('logo', '')).strip()
+                        if not ch_logo:
+                            ch_logo = self.match_channel_logo(ch_title)
+
                         processed_channels.append({
                             "id": ch_id,
                             "name": ch_title,
                             "category": group_name,
-                            "logo": ""
+                            "logo": ch_logo
                         })
 
         if not processed_channels:
@@ -299,13 +331,14 @@ class Spider(Spider):
                 "id": "1",
                 "name": "未偵測到 channels.json 檔案",
                 "category": "系統提示",
-                "logo": ""
+                "logo": self.default_logo
             })
 
         self.channels = processed_channels
         self.categories = categories_order
         return self.channels
 
+    # ---------- TVBox 標準介面 ----------
     def homeContent(self, filter):
         self.load_channels()
         classes = [{"type_name": "全部頻道", "type_id": "all"}]
@@ -328,7 +361,7 @@ class Spider(Spider):
             videos.append({
                 "vod_id": ch["id"],
                 "vod_name": ch["name"],
-                "vod_pic": ch["logo"] if ch["logo"] else "https://img.icons8.com/color/48/tv.png",
+                "vod_pic": ch["logo"] if ch["logo"] else self.default_logo,
                 "vod_remarks": "直播",
                 "vod_year": "",
                 "vod_area": ch["category"],
@@ -353,11 +386,14 @@ class Spider(Spider):
         channels = self.load_channels()
         ch_name = "UBLive直播"
         category = "直播"
+        ch_logo = self.default_logo
 
         for ch in channels:
             if ch["id"] == channel_id:
                 ch_name = ch["name"]
                 category = ch["category"]
+                if ch["logo"]:
+                    ch_logo = ch["logo"]
                 break
 
         token = self.fetch_dynamic_token()
@@ -377,7 +413,7 @@ class Spider(Spider):
                 {
                     "vod_id": channel_id,
                     "vod_name": ch_name,
-                    "vod_pic": "https://img.icons8.com/color/48/tv.png",
+                    "vod_pic": ch_logo,
                     "vod_remarks": "直播",
                     "vod_year": "",
                     "vod_area": category,
@@ -402,7 +438,7 @@ class Spider(Spider):
             videos.append({
                 "vod_id": ch["id"],
                 "vod_name": ch["name"],
-                "vod_pic": "https://img.icons8.com/color/48/tv.png",
+                "vod_pic": ch["logo"] if ch["logo"] else self.default_logo,
                 "vod_remarks": "直播",
                 "vod_content": ch["category"]
             })
